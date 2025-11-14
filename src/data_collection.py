@@ -1,61 +1,40 @@
-import pandas as pd
-from pathlib import Path
-
-
-def load_raw_telemetry(filepath: str) -> pd.DataFrame:
+def load_and_prepare_apex_history(
+    filename: str = "Apex_Game_History_Season15S1.csv",
+) -> pd.DataFrame:
     """
-    Load a raw Apex Legends telemetry JSON file exported from the API.
+    Load the real Apex game history dataset and map it to the
+    columns used in the rest of the pipeline.
 
-    Parameters
-    ----------
-    filepath : str
-        Path to a .json file containing telemetry events.
-
-    Returns
-    -------
-    pd.DataFrame
-        Raw telemetry events as a DataFrame.
+    - my_duration -> time + survival_time
+    - my_damage   -> damage
+    - my_kills / my_assists / my_knocks -> combat_events
     """
-    path = Path(filepath)
 
-    if path.suffix != ".json":
-        raise ValueError("Expected a .json file, got: {}".format(path.suffix))
+    raw_dir = Path("data/raw")
+    path = raw_dir / filename
 
-    df = pd.read_json(path)
+    df = pd.read_csv(path)
+
+    # 基础清洗：去掉全空的行，重置索引
+    df = df.dropna(how="all").reset_index(drop=True)
+
+    # 把原始列映射成我们 pipeline 能用的列名
+    if "my_duration" in df.columns:
+        df["time"] = df["my_duration"]
+        df["survival_time"] = df["my_duration"]
+
+    if "my_damage" in df.columns:
+        df["damage"] = df["my_damage"]
+
+    # 用 击杀+助攻+击倒 的总和近似表示“战斗事件数”
+    for col in ["my_kills", "my_assists", "my_knocks"]:
+        if col not in df.columns:
+            df[col] = 0  # 如果某一列不存在就补 0，避免报错
+
+    df["combat_events"] = (
+        df["my_kills"].fillna(0)
+        + df["my_assists"].fillna(0)
+        + df["my_knocks"].fillna(0)
+    )
+
     return df
-
-
-def basic_cleaning(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply basic cleaning steps shared by all analyses.
-
-    - Drop completely empty rows
-    - Reset the index
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Raw telemetry DataFrame.
-
-    Returns
-    -------
-    pd.DataFrame
-        Cleaned DataFrame.
-    """
-    df = df.copy()
-    df = df.dropna(how="all")
-    df = df.reset_index(drop=True)
-    return df
-
-
-if __name__ == "__main__":
-    # Example usage (you can change this later when you have real data)
-    raw_path = "data/raw/sample_telemetry.json"
-
-    try:
-        df_raw = load_raw_telemetry(raw_path)
-        df_clean = basic_cleaning(df_raw)
-        df_clean.to_csv("data/processed/sample_telemetry_clean.csv", index=False)
-        print("Saved cleaned telemetry to data/processed/")
-    except FileNotFoundError:
-        print("Example file not found. Make sure data/raw/sample_telemetry.json exists.")
